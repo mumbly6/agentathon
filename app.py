@@ -1,11 +1,11 @@
 """
 Mama Bidii Chama Dispute Arbitrator - Cloud Run API
-Endpoints: /health, /chat
+Endpoints: /, /health, /chat, /members, /member/<name>, /loan-check/<name>
 """
 
 import os
 import json
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from agent_tools import (
     search_bylaws,
     get_member_financial_status,
@@ -15,111 +15,94 @@ from agent_tools import (
 
 app = Flask(__name__)
 
+# Optional: Gemini integration for natural language arbitration
+GEMINI_ENABLED = False
+gemini_model = None
+
+try:
+    from google import genai
+    PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "chama-agentathon26")
+    LOCATION = os.environ.get("GOOGLE_CLOUD_REGION", "us-central1")
+    client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
+    gemini_model = "gemini-1.5-flash"
+    GEMINI_ENABLED = True
+    print("✅ Gemini connected")
+except Exception as e:
+    print(f"⚠️ Gemini not available ({e}), using tool-only mode")
+
+SYSTEM_PROMPT = """You are Msuluhishi wa Migogoro ya Mama Bidii Chama (Chama Dispute Arbitrator).
+You resolve disputes using bylaws and M-Pesa records. Respond in the user's language (Swahili/Sheng/English).
+Always cite specific ARTICLE & Section numbers. Never fabricate financial data.
+Structure: 📋 Summary → 📜 Bylaws → 📊 Evidence → ⚖️ Verdict → 💡 Next Steps."""
+
+
+@app.route("/")
+def index():
+    """Serve the frontend UI."""
+    return render_template("index.html")
+
 
 @app.route("/health", methods=["GET"])
 def health():
-    """Health check endpoint."""
-    return jsonify({
-        "status": "healthy",
-        "service": "Mama Bidii Chama Dispute Arbitrator",
-        "version": "1.0.0",
-    })
+    return jsonify({"status": "healthy", "service": "Mama Bidii Chama Dispute Arbitrator",
+                     "version": "1.0.0", "gemini": GEMINI_ENABLED})
 
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    """
-    Dispute resolution chat endpoint.
-    Accepts JSON: {"message": "user dispute text", "member_name": "optional"}
-    Returns arbitration response with bylaw references and financial evidence.
-    """
     data = request.get_json(force=True, silent=True) or {}
     message = data.get("message", "").strip()
-
     if not message:
-        return jsonify({"error": "Please provide a 'message' field with your dispute."}), 400
+        return jsonify({"error": "Please provide a 'message' field."}), 400
 
-    # Extract member name if provided
     member_name = data.get("member_name", "")
 
-    # Build response by calling agent tools
-    response_parts = []
-
-    # 1. Search bylaws for relevant rules
+    # Gather tool evidence
+    arbitration = []
     bylaw_result = search_bylaws(message)
-    response_parts.append({
-        "section": "SHERIA HUSIKA (Applicable Bylaws)",
-        "content": bylaw_result,
-    })
+    arbitration.append({"section": "📜 SHERIA (Bylaws)", "content": bylaw_result})
 
-    # 2. If member name given, get financial status
     if member_name:
         financial_status = get_member_financial_status(member_name)
-        response_parts.append({
-            "section": "USHAHIDI WA KIFEDHA (Financial Evidence)",
-            "content": financial_status,
-        })
+        arbitration.append({"section": "📊 USHAHIDI (Financial Evidence)", "content": financial_status})
 
-        # 3. Check loan eligibility if query is loan-related
-        loan_keywords = ["loan", "mkopo", "borrow", "eligib"]
-        if any(kw in message.lower() for kw in loan_keywords):
-            loan_result = calculate_loan_eligibility(member_name)
-            response_parts.append({
-                "section": "USTAHILI WA MKOPO (Loan Eligibility)",
-                "content": loan_result,
-            })
+        loan_kws = ["loan", "mkopo", "borrow", "eligib"]
+        if any(kw in message.lower() for kw in loan_kws):
+            arbitration.append({"section": "🏦 MKOPO (Loan Check)", "content": calculate_loan_eligibility(member_name)})
 
-        # 4. Verify ledger
-        ledger = verify_ledger_transaction(member_name)
-        response_parts.append({
-            "section": "REKODI ZA M-PESA (Ledger Verification)",
-            "content": ledger,
-        })
+        arbitration.append({"section": "📒 REKODI (Ledger)", "content": verify_ledger_transaction(member_name)})
 
-    return jsonify({
-        "dispute": message,
-        "arbitration": response_parts,
-        "disclaimer": "Uamuzi huu unategemea sheria za Mama Bidii Chama na rekodi za M-Pesa.",
-    })
+    # If Gemini available, generate natural language verdict
+    ai_response = None
+    if GEMINI_ENABLED:
+        try:
+            context = json.dumps(arbitration, default=str, indent=2)
+            prompt = f"{SYSTEM_PROMPT}\n\nDISPUTE: {message}\nMEMBER: {member_name or 'Not specified'}\n\nEVIDENCE FROM TOOLS:\n{context}\n\nGive your arbitration verdict:"
+            resp = client.models.generate_content(model=gemini_model, contents=prompt)
+            ai_response = resp.text
+        except Exception as e:
+            ai_response = f"Gemini error: {str(e)}"
+
+    return jsonify({"dispute": message, "arbitration": arbitration,
+                     "ai_response": ai_response,
+                     "disclaimer": "Uamuzi huu unategemea sheria za Mama Bidii Chama na rekodi za M-Pesa."})
 
 
 @app.route("/members", methods=["GET"])
 def list_members():
-    """List all chama members."""
-    members_path = os.path.join(os.path.dirname(__file__), "data", "members.json")
-    with open(members_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return jsonify(data)
+    p = os.path.join(os.path.dirname(__file__), "data", "members.json")
+    with open(p, "r", encoding="utf-8") as f:
+        return jsonify(json.load(f))
 
 
 @app.route("/member/<name>", methods=["GET"])
 def member_status(name):
-    """Get a specific member's financial status."""
-    result = get_member_financial_status(name)
-    return jsonify(result)
+    return jsonify(get_member_financial_status(name))
 
 
 @app.route("/loan-check/<name>", methods=["GET"])
 def loan_check(name):
-    """Check loan eligibility for a member."""
-    result = calculate_loan_eligibility(name)
-    return jsonify(result)
-
-
-@app.route("/", methods=["GET"])
-def index():
-    """Root endpoint with API documentation."""
-    return jsonify({
-        "service": "Mama Bidii Chama Dispute Arbitrator",
-        "description": "AI-powered arbitration for Kenyan chama disputes using bylaws and M-Pesa records.",
-        "endpoints": {
-            "GET /health": "Health check",
-            "POST /chat": "Submit a dispute for arbitration. Body: {\"message\": \"...\", \"member_name\": \"...\"}",
-            "GET /members": "List all chama members",
-            "GET /member/<name>": "Get member financial status",
-            "GET /loan-check/<name>": "Check loan eligibility",
-        },
-    })
+    return jsonify(calculate_loan_eligibility(name))
 
 
 if __name__ == "__main__":
