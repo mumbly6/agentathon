@@ -1,0 +1,9 @@
+Date,Member,Amount,Type,Reference
+2024-01-05,Jane Wambui,2000,Contribution,JAN-2024
+2024-01-05,Mary Akinyi,2000,Contribution,JAN-2024
+2024-01-12,Jane Wambui,200,Late Fee,JAN-LATE
+2024-02-05,Mary Akinyi,2000,Contribution,FEB-2024
+2024-02-10,Jane Wambui,0,MISSED,FEB-MISSED
+2024-03-05,Mary Akinyi,2000,Contribution,MAR-2024
+2024-03-10,Jane Wambui,0,MISSED,MAR-MISSED
+2024-03-15,Mary Akinyi,6000,Loan Disbursement,LOAN-001

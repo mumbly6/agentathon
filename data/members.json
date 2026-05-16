@@ -1,0 +1,24 @@
+{
+  "members": [
+    {
+      "id": "M001",
+      "name": "Jane Wambui",
+      "phone": "+254712345678",
+      "joined": "2023-07-01",
+      "total_contributions": 18200,
+      "missed_payments": 2,
+      "late_fees_owed": 800,
+      "loan_balance": 0
+    },
+    {
+      "id": "M002",
+      "name": "Mary Akinyi",
+      "phone": "+254723456789",
+      "joined": "2023-07-01",
+      "total_contributions": 24000,
+      "missed_payments": 0,
+      "late_fees_owed": 0,
+      "loan_balance": 6000
+    }
+  ]
+}
