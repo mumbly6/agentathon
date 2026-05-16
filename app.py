@@ -15,20 +15,21 @@ from agent_tools import (
 
 app = Flask(__name__)
 
-# Optional: Gemini integration for natural language arbitration
+# Gemini integration via Google AI API key
 GEMINI_ENABLED = False
-gemini_model = None
+client = None
 
-try:
-    from google import genai
-    PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "chama-agentathon26")
-    LOCATION = os.environ.get("GOOGLE_CLOUD_REGION", "us-central1")
-    client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
-    gemini_model = "gemini-1.5-flash"
-    GEMINI_ENABLED = True
-    print("✅ Gemini connected")
-except Exception as e:
-    print(f"⚠️ Gemini not available ({e}), using tool-only mode")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+if GEMINI_API_KEY:
+    try:
+        from google import genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        GEMINI_ENABLED = True
+        print("✅ Gemini connected via API key")
+    except Exception as e:
+        print(f"⚠️ Gemini init failed: {e}")
+else:
+    print("⚠️ No GEMINI_API_KEY set, using tool-only mode")
 
 SYSTEM_PROMPT = """You are Msuluhishi wa Migogoro ya Mama Bidii Chama (Chama Dispute Arbitrator).
 You resolve disputes using bylaws and M-Pesa records. Respond in the user's language (Swahili/Sheng/English).
@@ -78,7 +79,7 @@ def chat():
         try:
             context = json.dumps(arbitration, default=str, indent=2)
             prompt = f"{SYSTEM_PROMPT}\n\nDISPUTE: {message}\nMEMBER: {member_name or 'Not specified'}\n\nEVIDENCE FROM TOOLS:\n{context}\n\nGive your arbitration verdict:"
-            resp = client.models.generate_content(model=gemini_model, contents=prompt)
+            resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
             ai_response = resp.text
         except Exception as e:
             ai_response = f"Gemini error: {str(e)}"
